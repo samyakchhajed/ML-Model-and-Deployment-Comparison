@@ -1,0 +1,5 @@
+# Lambda Layer dependencies — included in the pre-provisioned Lambda Layer
+# Versions pinned for reproducibility on Python 3.11 (Amazon Linux 2023).
+scikit-learn==1.4.2
+numpy==1.26.4
+pandas==2.2.2

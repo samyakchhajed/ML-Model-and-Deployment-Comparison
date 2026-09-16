@@ -1,0 +1,105 @@
+name: Deploy ML Workbench to AWS
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment tier'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - prod
+      aws_region:
+        description: 'Target AWS deployment region'
+        required: true
+        default: 'ap-south-1'
+        type: string
+
+permissions:
+  id-token: write   # Required for requesting the OIDC JWT from GitHub
+  contents: read    # Required for actions/checkout
+
+jobs:
+  deploy:
+    name: Build, Provision & Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Build Scikit-Learn / ML Lambda Layer
+        run: |
+          echo "Building Python 3.11 ML Dependencies Layer (scikit-learn, numpy, pandas)..."
+          mkdir -p terraform/modules/compute/build/layer/python
+          pip install -r backend/requirements.txt \
+            -t terraform/modules/compute/build/layer/python \
+            --platform manylinux2014_x86_64 \
+            --only-binary=:all: \
+            --python-version 3.11
+          
+          cd terraform/modules/compute/build/layer
+          zip -rq ../ml_layer.zip python/
+          cd -
+          echo "ML Layer package built successfully: terraform/modules/compute/build/ml_layer.zip"
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ inputs.aws_region || 'ap-south-1' }}
+          audience: sts.amazonaws.com
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+          terraform_wrapper: false
+
+      - name: Terraform Init & Validate
+        working-directory: terraform
+        run: |
+          terraform init
+          terraform validate
+
+      - name: Terraform Apply
+        working-directory: terraform
+        run: |
+          terraform apply -auto-approve \
+            -var="aws_region=${{ inputs.aws_region || 'ap-south-1' }}" \
+            -var="environment=${{ inputs.environment }}"
+
+      - name: Deploy Frontend to S3 & Invalidate CloudFront
+        run: |
+          cd terraform
+          API_URL=$(terraform output -raw api_gateway_url)
+          SITE_BUCKET=$(terraform output -raw s3_frontend_bucket)
+          CF_DIST_ID=$(terraform output -raw cloudfront_distribution_id)
+          WEB_URL=$(terraform output -raw website_url)
+          cd ..
+
+          echo "Configuring runtime API URL: ${API_URL}"
+          echo "window.API_BASE_URL = '${API_URL}';" > frontend/config.js
+
+          echo "Syncing frontend files to s3://${SITE_BUCKET}..."
+          aws s3 sync frontend/ s3://${SITE_BUCKET} --delete
+
+          echo "Creating CloudFront cache invalidation for distribution ${CF_DIST_ID}..."
+          aws cloudfront create-invalidation --distribution-id ${CF_DIST_ID} --paths "/*"
+
+          echo "### 🚀 Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Resource | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Web Application** | [${WEB_URL}](${WEB_URL}) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **API Gateway** | \`${API_URL}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Region** | \`${{ inputs.aws_region || 'ap-south-1' }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Environment** | \`${{ inputs.environment }}\` |" >> $GITHUB_STEP_SUMMARY

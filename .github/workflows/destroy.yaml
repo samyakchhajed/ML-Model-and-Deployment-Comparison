@@ -1,0 +1,74 @@
+name: Destroy ML Workbench on AWS
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type "destroy" to confirm complete resource deletion'
+        required: true
+        type: string
+      environment:
+        description: 'Target environment tier to destroy'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - prod
+      aws_region:
+        description: 'Target AWS deployment region'
+        required: true
+        default: 'ap-south-1'
+        type: string
+
+permissions:
+  id-token: write   # Required for requesting the OIDC JWT from GitHub
+  contents: read    # Required for actions/checkout
+
+jobs:
+  destroy:
+    name: Teardown Infrastructure
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Safety Confirmation Check
+        run: |
+          if [ "${{ inputs.confirmation }}" != "destroy" ]; then
+            echo "❌ Teardown aborted: Confirmation string does not match 'destroy'."
+            echo "Received: '${{ inputs.confirmation }}'"
+            exit 1
+          fi
+          echo "✅ Safety confirmation verified. Proceeding with resource destruction."
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ inputs.aws_region || 'ap-south-1' }}
+          audience: sts.amazonaws.com
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init
+
+      - name: Terraform Destroy
+        working-directory: terraform
+        run: |
+          terraform destroy -auto-approve \
+            -var="aws_region=${{ inputs.aws_region || 'ap-south-1' }}" \
+            -var="environment=${{ inputs.environment }}"
+
+      - name: Teardown Summary
+        run: |
+          echo "### 🗑️ Infrastructure Teardown Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All AWS resources for environment **${{ inputs.environment }}** in region **${{ inputs.aws_region || 'ap-south-1' }}** have been successfully destroyed." >> $GITHUB_STEP_SUMMARY
