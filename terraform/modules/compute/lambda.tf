@@ -6,22 +6,21 @@ locals {
 
 # ── 1. Shared ML Layer (Provisioned when custom_layer_arn is empty) ──────────────
 
-data "archive_file" "ml_layer_zip" {
+data "archive_file" "ml_layer_fallback" {
   count       = var.custom_layer_arn == "" ? 1 : 0
   type        = "zip"
-  output_path = "${path.module}/build/ml_layer.zip"
+  output_path = "${path.module}/build/ml_layer_fallback.zip"
 
-  # Creates the layer directory structure: python/
   source {
-    content  = "# Python 3.11 Lambda Layer for scikit-learn, numpy, pandas\n"
+    content  = "# Python 3.11 Lambda Layer placeholder\n"
     filename = "python/requirements-info.txt"
   }
 }
 
 resource "aws_lambda_layer_version" "ml_layer" {
   count               = var.custom_layer_arn == "" ? 1 : 0
-  filename            = data.archive_file.ml_layer_zip[0].output_path
-  source_code_hash    = data.archive_file.ml_layer_zip[0].output_base64sha256
+  filename            = fileexists("${path.module}/build/ml_layer.zip") ? "${path.module}/build/ml_layer.zip" : data.archive_file.ml_layer_fallback[0].output_path
+  source_code_hash    = fileexists("${path.module}/build/ml_layer.zip") ? filebase64sha256("${path.module}/build/ml_layer.zip") : data.archive_file.ml_layer_fallback[0].output_base64sha256
   layer_name          = "${var.project_prefix}-ml-layer-${var.environment}"
   compatible_runtimes = ["python3.11"]
   description         = "ML dependencies: scikit-learn==1.4.2, numpy==1.26.4, pandas==2.2.2"
@@ -187,6 +186,65 @@ resource "aws_lambda_function" "inference" {
       BATCH_OUTPUT_PREFIX  = "batch-output"
     }
   }
+
+  tags = {
+    Project     = var.project_prefix
+    Environment = var.environment
+    ManagedBy   = "Terraform"
+  }
+}
+
+# ── 4. Dedicated CloudWatch Log Groups ───────────────────────────────────────────
+# Explicit log group provisioning ensures immediate logging without permission errors
+# and guarantees clean teardown during terraform destroy.
+
+resource "aws_cloudwatch_log_group" "experiments" {
+  name              = "/aws/lambda/${aws_lambda_function.experiments.function_name}"
+  retention_in_days = 14
+
+  tags = {
+    Project     = var.project_prefix
+    Environment = var.environment
+    ManagedBy   = "Terraform"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "user_model_worker" {
+  name              = "/aws/lambda/${aws_lambda_function.user_model_worker.function_name}"
+  retention_in_days = 14
+
+  tags = {
+    Project     = var.project_prefix
+    Environment = var.environment
+    ManagedBy   = "Terraform"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "sagemaker_deployer" {
+  name              = "/aws/lambda/${aws_lambda_function.sagemaker_deployer.function_name}"
+  retention_in_days = 14
+
+  tags = {
+    Project     = var.project_prefix
+    Environment = var.environment
+    ManagedBy   = "Terraform"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "autopilot" {
+  name              = "/aws/lambda/${aws_lambda_function.autopilot.function_name}"
+  retention_in_days = 14
+
+  tags = {
+    Project     = var.project_prefix
+    Environment = var.environment
+    ManagedBy   = "Terraform"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "inference" {
+  name              = "/aws/lambda/${aws_lambda_function.inference.function_name}"
+  retention_in_days = 14
 
   tags = {
     Project     = var.project_prefix

@@ -76,7 +76,7 @@ Long-running workloads (AutoML training and concurrent Batch Transform evaluatio
 
 The platform is built on a *serverless, pay-per-use* architecture deployed in the Mumbai (`ap-south-1`) region (compute scales to zero when inactive, with minimal baseline storage and database cost):
 
-- **Frontend:** Zero-build single-page application (vanilla HTML5, modern CSS, ES Modules) hosted securely via *Amazon S3* and distributed globally via *Amazon CloudFront* with Origin Access Control (OAC).
+- **Frontend:** Zero-build single-page application (vanilla HTML5, modern CSS, ES Modules) hosted directly via *Amazon S3 Static Website Hosting* with instant sub-minute deployments and client-side SPA routing fallback.
 - **API Surface:** *Amazon API Gateway HTTP API (v2)* with built-in CORS and payload format 2.0 proxy integrations.
 - **Compute Layer:** *AWS Lambda (Python 3.11)* built with a hexagonal architecture isolating pure business logic handlers from cloud adapters.
 - **Data & Artifacts:** *Amazon DynamoDB* (single-table design with on-demand capacity) for metadata and benchmark results; *Amazon S3* (private SSE-S3 encrypted) for datasets and model binaries.

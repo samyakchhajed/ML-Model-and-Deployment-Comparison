@@ -3,6 +3,13 @@
 terraform {
   required_version = ">= 1.5.0"
 
+  backend "s3" {
+    bucket  = "ml-benchmark-tfstate-ap-south-1"
+    key     = "ml-benchmark/terraform.tfstate"
+    region  = "ap-south-1"
+    encrypt = true
+  }
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -88,18 +95,20 @@ module "iam" {
 # ── 4. Compute Module (Lambdas + Layer + API Gateway) ─────────────────────────
 
 module "compute" {
-  source                 = "./modules/compute"
-  project_prefix         = var.project_prefix
-  environment            = var.environment
-  s3_bucket_name         = module.storage.bucket_name
-  dynamodb_table_name    = module.database.table_name
-  lambda_exec_role_arn   = module.iam.lambda_exec_role_arn
+  source                  = "./modules/compute"
+  project_prefix          = var.project_prefix
+  environment             = var.environment
+  s3_bucket_name          = module.storage.bucket_name
+  dynamodb_table_name     = module.database.table_name
+  lambda_exec_role_arn    = module.iam.lambda_exec_role_arn
   sagemaker_exec_role_arn = module.iam.sagemaker_exec_role_arn
-  custom_layer_arn       = var.custom_layer_arn
-  backend_dir            = "${path.root}/../backend"
+  custom_layer_arn        = var.custom_layer_arn
+  backend_dir             = "${path.root}/../backend"
+
+  depends_on = [module.iam]
 }
 
-# ── 5. Frontend Hosting Module (S3 + CloudFront OAC) ─────────────────────────
+# ── 5. Frontend Hosting Module (Direct S3 Static Website Hosting) ───────────
 
 module "frontend" {
   source         = "./modules/frontend"
@@ -111,7 +120,7 @@ module "frontend" {
 
 output "website_url" {
   value       = module.frontend.website_url
-  description = "Public HTTPS CloudFront URL for the web application"
+  description = "Public URL for the frontend web application"
 }
 
 output "api_gateway_url" {
@@ -132,9 +141,4 @@ output "dynamodb_table_name" {
 output "s3_frontend_bucket" {
   value       = module.frontend.s3_bucket_name
   description = "S3 bucket storing frontend static assets"
-}
-
-output "cloudfront_distribution_id" {
-  value       = module.frontend.cloudfront_distribution_id
-  description = "CloudFront Distribution ID for cache invalidations"
 }

@@ -11,10 +11,10 @@ This document records every significant design decision made for this project, i
 **Rejected:** Mixing AWS SDK calls directly into handler logic.
 **Why:** Keeps business logic portable and integration-testable without AWS. Swapping cloud provider means rewriting only `adapters.py`, not the core logic.
 
-### Decision: No Docker / no containers
-**Chosen:** Lambda functions deployed as Python ZIP packages.
-**Rejected:** Docker images / ECR.
-**Why:** This project does not need containers. Lambda ZIP deployment is simpler, faster to iterate on, and avoids ECR costs and image build steps.
+### Decision: Python ZIP Packages with Pre-Built Layers for Lambda
+**Chosen:** Lambda functions deployed as lightweight Python ZIP packages with a compiled Linux ML Layer (`scikit-learn`, `numpy`, `pandas`).
+**Rejected:** Custom Docker container images for Lambda (Container Image Lambda).
+**Why:** Lambda ZIP packaging with layers deploys significantly faster, eliminates local Docker build overhead during CI/CD, and avoids maintaining a custom ECR repository. For SageMaker serverless endpoints, the platform leverages AWS's official pre-built Scikit-Learn container (`683313688378.dkr.ecr.<region>.amazonaws.com/sagemaker-scikit-learn`) rather than building custom containers.
 
 ### Decision: No separate backend server
 **Chosen:** API Gateway + Lambda functions *are* the backend. Terraform provisions them.
@@ -122,10 +122,10 @@ This document records every significant design decision made for this project, i
 **Rejected:** Running AWS locally (LocalStack), or requiring a deployed backend before any frontend work.
 **Why:** The frontend is fully demonstrable and interactive without any AWS account, credentials, or deployed infrastructure.
 
-### Decision: Frontend hosted on S3 + CloudFront
-**Chosen:** S3 static website + CloudFront distribution.
-**Rejected:** Running a Python/Node server on EC2 or Lambda to serve HTML.
-**Why:** The frontend is static files (~50 KB). S3 + CloudFront costs around $0 at this scale and does not consume AWS credits meaningfully. A compute server to serve static HTML would be unnecessary cost and operational overhead.
+### Decision: Direct S3 Static Website Hosting (Option B)
+**Chosen:** Direct S3 Static Website Hosting with SPA fallback (`index.html` error document).
+**Rejected:** CloudFront Distribution (OAC) and running a dedicated Node/Python server on EC2/Lambda.
+**Why:** The frontend consists of lightweight static assets (~50 KB). Direct S3 Static Website Hosting deploys instantly in <15 seconds, incurs ₹0 baseline cost at portfolio scale, completely bypasses new account CloudFront anti-abuse verification holds, and provides built-in client-side SPA routing via error document redirection.
 
 ### Decision: Light color theme
 **Chosen:** White/light-gray backgrounds, indigo accents, dark text.
