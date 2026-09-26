@@ -16,6 +16,11 @@ on:
         required: true
         default: 'ap-south-1'
         type: string
+      auto_rollback_on_failure:
+        description: 'Automatically destroy partially created resources if deployment fails'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   id-token: write   # Required for requesting the OIDC JWT from GitHub
@@ -52,17 +57,24 @@ jobs:
           echo "ML Layer package built successfully: terraform/modules/compute/build/ml_layer.zip"
 
       - name: Configure AWS Credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ inputs.aws_region || 'ap-south-1' }}
           audience: sts.amazonaws.com
+          role-skip-session-tagging: true
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.9.0
           terraform_wrapper: false
+
+      - name: Ensure Remote S3 State Bucket Exists (Terraform Bootstrap)
+        working-directory: terraform/bootstrap
+        run: |
+          terraform init
+          terraform apply -auto-approve -var="aws_region=${{ inputs.aws_region || 'ap-south-1' }}"
 
       - name: Terraform Init & Validate
         working-directory: terraform
@@ -77,12 +89,11 @@ jobs:
             -var="aws_region=${{ inputs.aws_region || 'ap-south-1' }}" \
             -var="environment=${{ inputs.environment }}"
 
-      - name: Deploy Frontend to S3 & Invalidate CloudFront
+      - name: Deploy Frontend to S3 Static Website
         run: |
           cd terraform
           API_URL=$(terraform output -raw api_gateway_url)
           SITE_BUCKET=$(terraform output -raw s3_frontend_bucket)
-          CF_DIST_ID=$(terraform output -raw cloudfront_distribution_id)
           WEB_URL=$(terraform output -raw website_url)
           cd ..
 
@@ -92,9 +103,6 @@ jobs:
           echo "Syncing frontend files to s3://${SITE_BUCKET}..."
           aws s3 sync frontend/ s3://${SITE_BUCKET} --delete
 
-          echo "Creating CloudFront cache invalidation for distribution ${CF_DIST_ID}..."
-          aws cloudfront create-invalidation --distribution-id ${CF_DIST_ID} --paths "/*"
-
           echo "### 🚀 Deployment Successful!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Resource | Value |" >> $GITHUB_STEP_SUMMARY
@@ -103,3 +111,13 @@ jobs:
           echo "| **API Gateway** | \`${API_URL}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Region** | \`${{ inputs.aws_region || 'ap-south-1' }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Environment** | \`${{ inputs.environment }}\` |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Auto-Rollback Partially Provisioned Resources on Failure
+        if: failure() && inputs.auto_rollback_on_failure == true
+        working-directory: terraform
+        run: |
+          echo "⚠️ Deployment failed and auto_rollback_on_failure is enabled. Destroying partial resources..."
+          terraform destroy -auto-approve \
+            -var="aws_region=${{ inputs.aws_region || 'ap-south-1' }}" \
+            -var="environment=${{ inputs.environment }}"
+          echo "Partial resources destroyed successfully."

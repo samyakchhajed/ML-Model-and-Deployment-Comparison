@@ -34,21 +34,22 @@ jobs:
       - name: Safety Confirmation Check
         run: |
           if [ "${{ inputs.confirmation }}" != "destroy" ]; then
-            echo "❌ Teardown aborted: Confirmation string does not match 'destroy'."
+            echo "Teardown aborted: Confirmation string does not match 'destroy'."
             echo "Received: '${{ inputs.confirmation }}'"
             exit 1
           fi
-          echo "✅ Safety confirmation verified. Proceeding with resource destruction."
+          echo "Safety confirmation verified. Proceeding with resource destruction."
 
       - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Configure AWS Credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ inputs.aws_region || 'ap-south-1' }}
           audience: sts.amazonaws.com
+          role-skip-session-tagging: true
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
