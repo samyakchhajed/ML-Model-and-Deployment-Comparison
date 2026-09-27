@@ -74,6 +74,11 @@ jobs:
         working-directory: terraform/bootstrap
         run: |
           terraform init
+          STATE_BUCKET="ml-benchmark-tfstate-ap-south-1"
+          if aws s3api head-bucket --bucket "$STATE_BUCKET" 2>/dev/null; then
+            echo "Remote state bucket '$STATE_BUCKET' already exists in AWS. Importing into state..."
+            terraform import -var="aws_region=${{ inputs.aws_region || 'ap-south-1' }}" aws_s3_bucket.terraform_state "$STATE_BUCKET" || true
+          fi
           terraform apply -auto-approve -var="aws_region=${{ inputs.aws_region || 'ap-south-1' }}"
 
       - name: Terraform Init & Validate
