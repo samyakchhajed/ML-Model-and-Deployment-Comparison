@@ -17,10 +17,19 @@ data "archive_file" "ml_layer_fallback" {
   }
 }
 
+resource "aws_s3_object" "ml_layer_s3" {
+  count  = var.custom_layer_arn == "" ? 1 : 0
+  bucket = var.s3_bucket_name
+  key    = "layers/${var.project_prefix}-ml-layer-${var.environment}.zip"
+  source = fileexists("${path.module}/build/ml_layer.zip") ? "${path.module}/build/ml_layer.zip" : data.archive_file.ml_layer_fallback[0].output_path
+  etag   = fileexists("${path.module}/build/ml_layer.zip") ? filemd5("${path.module}/build/ml_layer.zip") : data.archive_file.ml_layer_fallback[0].output_md5
+}
+
 resource "aws_lambda_layer_version" "ml_layer" {
   count               = var.custom_layer_arn == "" ? 1 : 0
-  filename            = fileexists("${path.module}/build/ml_layer.zip") ? "${path.module}/build/ml_layer.zip" : data.archive_file.ml_layer_fallback[0].output_path
-  source_code_hash    = fileexists("${path.module}/build/ml_layer.zip") ? filebase64sha256("${path.module}/build/ml_layer.zip") : data.archive_file.ml_layer_fallback[0].output_base64sha256
+  s3_bucket           = var.s3_bucket_name
+  s3_key              = aws_s3_object.ml_layer_s3[0].key
+  s3_object_version   = aws_s3_object.ml_layer_s3[0].version_id
   layer_name          = "${var.project_prefix}-ml-layer-${var.environment}"
   compatible_runtimes = ["python3.11"]
   description         = "ML dependencies: scikit-learn==1.4.2, numpy==1.26.4, pandas==2.2.2"
