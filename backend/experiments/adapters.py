@@ -256,9 +256,20 @@ def _tar_add_bytes(tar: tarfile.TarFile, data: bytes, arcname: str) -> None:
 
 def _sklearn_image_uri() -> str:
     """AWS-managed SageMaker sklearn container. Region is injected by Lambda runtime."""
-    region = os.environ.get("AWS_REGION", "us-east-1")
+    region = os.environ.get("AWS_REGION", "ap-south-1")
+    accounts = {
+        "us-east-1":      "683313688378",
+        "us-east-2":      "257758044811",
+        "us-west-2":      "246618743249",
+        "eu-west-1":      "141502667606",
+        "ap-south-1":     "720646828776",
+        "ap-southeast-1": "472281183178",
+        "ap-southeast-2": "491556884379",
+        "ap-northeast-1": "354813000052",
+    }
+    account = accounts.get(region, "720646828776")
     return (
-        f"683313688378.dkr.ecr.{region}.amazonaws.com"
+        f"{account}.dkr.ecr.{region}.amazonaws.com"
         "/sagemaker-scikit-learn:1.2-1-cpu-py3"
     )
 

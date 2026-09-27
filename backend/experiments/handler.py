@@ -130,9 +130,9 @@ def create_experiment(event):
         y_test      = test_df[[target_col]]
         test_source = "auto_split"
 
-    # --- Upload splits to S3 ----------------------------------------------------
+    # --- Upload splits to S3 (train isolated for Autopilot S3Prefix) ------------
     dataset_uri  = adapters.upload_csv(exp_id, "dataset.csv",         df)
-    train_uri    = adapters.upload_csv(exp_id, "train.csv",           train_df)
+    train_uri    = adapters.upload_csv(exp_id, "train/train.csv",     train_df)
     x_test_uri   = adapters.upload_csv(exp_id, "test_features.csv",   X_test)
     y_test_uri   = adapters.upload_csv(exp_id, "test_labels.csv",     y_test)
 

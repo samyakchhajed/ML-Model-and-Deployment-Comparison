@@ -45,11 +45,11 @@ def start_autopilot_job(exp_id: str, train_s3_uri: str, target_col: str, problem
     output_path = f"s3://{BUCKET}/{AUTOPILOT_OUT}/{exp_id}/"
 
     # S3DataSource requires an S3 prefix pointing to the folder containing the CSV
-    train_prefix = train_s3_uri.rsplit("/", 1)[0] + "/"
+    train_prefix = train_s3_uri if train_s3_uri.endswith("/") else train_s3_uri.rsplit("/", 1)[0] + "/"
 
-    _sagemaker().create_auto_ml_job(
-        AutoMLJobName=job_name,
-        InputDataConfig=[{
+    kwargs = {
+        "AutoMLJobName": job_name,
+        "InputDataConfig": [{
             "DataSource": {
                 "S3DataSource": {
                     "S3DataType": "S3Prefix",
@@ -59,13 +59,16 @@ def start_autopilot_job(exp_id: str, train_s3_uri: str, target_col: str, problem
             "TargetAttributeName": target_col,
             "ContentType":         "text/csv",
         }],
-        OutputDataConfig={"S3OutputPath": output_path},
-        AutoMLJobConfig={
+        "OutputDataConfig": {"S3OutputPath": output_path},
+        "AutoMLJobConfig": {
             "CompletionCriteria": {"MaxCandidates": 5},
         },
-        ProblemType=_problem_type_map(problem_type),
-        RoleArn=SM_EXEC_ROLE,
-    )
+        "RoleArn": SM_EXEC_ROLE,
+    }
+    if problem_type == "regression":
+        kwargs["ProblemType"] = "Regression"
+
+    _sagemaker().create_auto_ml_job(**kwargs)
     return job_name
 
 

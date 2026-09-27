@@ -121,51 +121,28 @@ resource "aws_iam_policy" "lambda_sagemaker" {
         Action = [
           "sagemaker:CreateAutoMLJob",
           "sagemaker:DescribeAutoMLJob",
-          "sagemaker:ListCandidatesForAutoMLJob"
-        ]
-        Resource = "arn:aws:sagemaker:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:automl-job/ml-lab-ap-*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
+          "sagemaker:ListCandidatesForAutoMLJob",
           "sagemaker:CreateModel",
           "sagemaker:DescribeModel",
-          "sagemaker:DeleteModel"
-        ]
-        Resource = "arn:aws:sagemaker:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:model/ml-lab-*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
+          "sagemaker:DeleteModel",
           "sagemaker:CreateEndpointConfig",
           "sagemaker:DescribeEndpointConfig",
-          "sagemaker:DeleteEndpointConfig"
-        ]
-        Resource = "arn:aws:sagemaker:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:endpoint-config/ml-lab-*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
+          "sagemaker:DeleteEndpointConfig",
           "sagemaker:CreateEndpoint",
           "sagemaker:DescribeEndpoint",
-          "sagemaker:DeleteEndpoint"
-        ]
-        Resource = "arn:aws:sagemaker:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:endpoint/ml-lab-*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
+          "sagemaker:DeleteEndpoint",
           "sagemaker:CreateTransformJob",
-          "sagemaker:DescribeTransformJob"
-        ]
-        Resource = "arn:aws:sagemaker:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:transform-job/ml-lab-bt-*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
+          "sagemaker:DescribeTransformJob",
           "sagemaker:InvokeEndpoint"
         ]
-        Resource = "arn:aws:sagemaker:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:endpoint/ml-lab-*"
+        Resource = [
+          "arn:aws:sagemaker:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:*",
+          "arn:aws:sagemaker:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:automl-job/*",
+          "arn:aws:sagemaker:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:model/*",
+          "arn:aws:sagemaker:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:endpoint-config/*",
+          "arn:aws:sagemaker:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:endpoint/*",
+          "arn:aws:sagemaker:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:transform-job/*"
+        ]
       },
       {
         Effect = "Allow"
@@ -307,7 +284,7 @@ resource "aws_iam_policy" "sagemaker_access" {
           "ecr:BatchGetImage",
           "ecr:BatchCheckLayerAvailability"
         ]
-        Resource = "arn:aws:ecr:${data.aws_region.current.name}:683313688378:repository/sagemaker-scikit-learn"
+        Resource = "arn:aws:ecr:${data.aws_region.current.name}:*:repository/*"
       }
     ]
   })
