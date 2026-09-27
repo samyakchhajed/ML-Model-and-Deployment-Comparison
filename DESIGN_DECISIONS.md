@@ -21,7 +21,13 @@ This document records every significant design decision made for this project, i
 **Rejected:** A standalone FastAPI or Flask server running somewhere.
 **Why:** There is nothing to keep running. Deploy the infrastructure, get the API. No server to maintain, scale, or pay for at idle.
 
+### Decision: DynamoDB Float & Numeric Type Serialization in Adapters
+**Chosen:** Isolated recursive `_to_dynamo` (`Decimal(str(v))`) and `_from_dynamo` (`float(v)` / `int(v)`) converters inside `adapters.py`.
+**Rejected:** Leaking AWS DynamoDB `Decimal` types into core handler logic or converting numbers to string representations in API contracts.
+**Why:** Maintains strict hexagonal architecture. Business logic and metric calculations operate with standard Python floats/ints, while adapters handle AWS-specific Boto3 serialization transparently.
+
 ---
+
 
 ## Infrastructure
 
@@ -58,6 +64,15 @@ This document records every significant design decision made for this project, i
 **Chosen:** A single pre-configured Lambda Layer (`scikit-learn==1.4.2`, `numpy==1.26.4`, `pandas==2.2.2`) attached **strictly to the Lambdas that require ML execution or data manipulation** (`experiments`, `user_model_worker`, and `inference`). `autopilot` and `sagemaker_deployer` receive no layer.
 **Rejected:** Attaching the heavy ML layer to all Lambda functions indiscriminately, or asking the user to upload dependencies.
 **Why:** Keeps individual function packages lightweight and avoids unnecessary layer overhead on functions that only use Python's standard library and runtime `boto3`.
+
+### Decision: ML Layer Packaging & Size Optimization Strategy
+**Chosen:** S3-backed artifact upload with CI/CD build-time binary stripping (`strip --strip-unneeded *.so`) and test/cache pruning (`tests/`, `__pycache__`, `*.dist-info`).
+**Rejected:**
+1. *Unstripped ZIP direct upload:* Fails both AWS's 50MB direct API upload limit (`RequestEntityTooLargeException: 70167211 bytes`) and the 250MB unzipped container ceiling (`InvalidParameterValueException: 262144000 bytes`, raw Scikit-Learn/Scipy/Pandas stack reaches ~315MB).
+2. *Lambda Container Images (Docker/ECR):* Supports up to 10GB but adds cold-start container latency and requires maintaining an auxiliary ECR repository.
+3. *AWS-Managed Public Layers (`AWSSDKPandas-Python311`):* Pre-built by AWS, but locks the project to AWS's specific pinned versions of Numpy and Pandas.
+4. *Cold-start `/tmp` S3 download:* Bypasses package limits into 10GB ephemeral storage, but adds 3–8s latency penalty to initial cold starts.
+**Why:** Pruning test suites and stripping debugging symbols cuts the unzipped layer package from ~315MB to ~140MB (well below the 250MB limit) while uploading via S3 bypasses the 50MB direct API ceiling. This keeps the deployment 100% self-contained, fast-booting, and completely within native serverless ZIP architecture.
 
 ### Decision: SageMaker Serverless Inference for the user's model (path 2)
 **Chosen:** SageMaker Serverless Inference endpoint.
@@ -102,6 +117,26 @@ This document records every significant design decision made for this project, i
 
 **Rejected:** ROC-AUC.
 **Why:** ROC-AUC requires probability scores (not just hard class predictions) from every inference path — Lambda, SageMaker Serverless, and all 5 Autopilot Batch Transform candidates. Probability output is not guaranteed to be available or in a consistent format across all paths. Dropping it keeps metric computation robust and uniform.
+
+### Decision: Decoupled Benchmark Execution & Partial Deployment Support
+**Chosen:** The comparison pipeline supports partial deployments. Whenever at least 1 path is deployed or ready (e.g. Lambda-only, SageMaker Serverless-only, Autopilot-only, or all three), the user can proceed directly to the Comparison Dashboard and run benchmarks.
+**Rejected:** Forcing users to wait for all three paths (or gating benchmark execution behind Autopilot completion).
+**Why:** Autopilot AutoML jobs can take 10–15 minutes. If a user quickly deploys their `.pkl` model to Lambda or SageMaker Serverless, they should be able to run inference and view evaluation metrics immediately without being forced to run or wait for Autopilot.
+
+### Decision: SageMaker Container Module Directory & Framework Packaging
+**Chosen:** Dual-entrypoint packaging (`inference.py` at root and under `code/`) with explicit `"SAGEMAKER_SUBMIT_DIRECTORY": "/opt/ml/model/code"` in the SageMaker model's environment.
+**Rejected:** Omitting `SAGEMAKER_SUBMIT_DIRECTORY` or relying on root defaults.
+**Why:** SageMaker Scikit-Learn containers (`sagemaker_containers`) require custom entrypoints to be located in `SAGEMAKER_SUBMIT_DIRECTORY`. Explicitly setting this ensures the serving handler imports the custom pre/post-processing logic reliably.
+
+### Decision: Autopilot Dataset Isolation via S3 Subfolder Prefix
+**Chosen:** Uploading training splits into dedicated subfolders (`{exp_id}/train/train.csv`) and pointing Autopilot's `S3Uri` to the subfolder.
+**Rejected:** Storing datasets at the root experiment folder (`{exp_id}/dataset.csv`).
+**Why:** SageMaker Autopilot's `S3Prefix` data source scans and ingests all CSV files under the target prefix. Placing test splits or full datasets in the root prefix causes Autopilot parsing errors.
+
+### Decision: Resilient Metric Computation & Feature Mismatch Error Isolation
+**Chosen:** Isolating path-level evaluation exceptions (e.g. when evaluating a standalone estimator on raw unencoded CSVs) into `results[path]["error"]`, allowing the parent comparison job to reach `completed` and serve artifact downloads.
+**Rejected:** Crashing the Lambda worker or failing the overall experiment status.
+**Why:** A single path failure or feature mismatch should never bring down the entire multi-target comparison workbench.
 
 ---
 

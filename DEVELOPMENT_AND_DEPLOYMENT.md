@@ -106,7 +106,7 @@ Configured AWS IAM OpenID Connect identity provider to trust GitHub:
 * **Audience**: `sts.amazonaws.com`
 
 ### 3. Repository-Scoped GitHub Actions IAM Role & Trust Policy
-Created dedicated IAM role **`GitHubActions-Terraform-Pipeline`** assumed keylessly by GitHub Actions runners using temporary STS credentials (`sts:AssumeRoleWithWebIdentity`).
+Created dedicated IAM role **`GitHub_Actions_Terraform_ML`** assumed keylessly by GitHub Actions runners using temporary STS credentials (`sts:AssumeRoleWithWebIdentity`).
 
 AWS IAM strictly enforces repository-level scoping (rejecting account-wide wildcards like `repo:owner/*`). The trust policy explicitly lists the target repositories while permitting all branches, tags, and workflow dispatch runs via `:*`:
 
@@ -148,25 +148,7 @@ Attached a dedicated permissions policy to the role allowing Terraform to manage
       "Sid": "S3Management",
       "Effect": "Allow",
       "Action": [
-        "s3:CreateBucket",
-        "s3:DeleteBucket",
-        "s3:ListBucket",
-        "s3:GetBucketLocation",
-        "s3:GetBucketPolicy",
-        "s3:PutBucketPolicy",
-        "s3:DeleteBucketPolicy",
-        "s3:GetBucketWebsite",
-        "s3:PutBucketWebsite",
-        "s3:DeleteBucketWebsite",
-        "s3:GetBucketPublicAccessBlock",
-        "s3:PutBucketPublicAccessBlock",
-        "s3:GetBucketVersioning",
-        "s3:PutBucketVersioning",
-        "s3:GetEncryptionConfiguration",
-        "s3:PutEncryptionConfiguration",
-        "s3:GetObject",
-        "s3:PutObject",
-        "s3:DeleteObject"
+        "s3:*"
       ],
       "Resource": "*"
     },
@@ -178,6 +160,10 @@ Attached a dedicated permissions policy to the role allowing Terraform to manage
         "dynamodb:DeleteTable",
         "dynamodb:DescribeTable",
         "dynamodb:UpdateTable",
+        "dynamodb:DescribeContinuousBackups",
+        "dynamodb:UpdateContinuousBackups",
+        "dynamodb:DescribeTimeToLive",
+        "dynamodb:UpdateTimeToLive",
         "dynamodb:TagResource",
         "dynamodb:UntagResource",
         "dynamodb:ListTagsOfResource"
@@ -194,6 +180,10 @@ Attached a dedicated permissions policy to the role allowing Terraform to manage
         "lambda:GetFunctionConfiguration",
         "lambda:UpdateFunctionCode",
         "lambda:UpdateFunctionConfiguration",
+        "lambda:ListVersionsByFunction",
+        "lambda:ListAliases",
+        "lambda:GetFunctionCodeSigningConfig",
+        "lambda:GetAccountSettings",
         "lambda:AddPermission",
         "lambda:RemovePermission",
         "lambda:GetPolicy",
@@ -240,13 +230,12 @@ Attached a dedicated permissions policy to the role allowing Terraform to manage
       "Sid": "ApiGatewayManagement",
       "Effect": "Allow",
       "Action": [
-        "apigateway:GET",
-        "apigateway:POST",
-        "apigateway:PUT",
-        "apigateway:PATCH",
-        "apigateway:DELETE"
+        "apigateway:*"
       ],
-      "Resource": "arn:aws:apigateway:ap-south-1::/*"
+      "Resource": [
+        "arn:aws:apigateway:ap-south-1::/*",
+        "arn:aws:apigateway:ap-south-1::*"
+      ]
     },
     {
       "Sid": "IAMRoleAndPolicyManagement",
@@ -257,8 +246,10 @@ Attached a dedicated permissions policy to the role allowing Terraform to manage
         "iam:DeleteRole",
         "iam:TagRole",
         "iam:UntagRole",
+        "iam:ListRoleTags",
         "iam:ListRolePolicies",
         "iam:ListAttachedRolePolicies",
+        "iam:ListInstanceProfilesForRole",
         "iam:AttachRolePolicy",
         "iam:DetachRolePolicy",
         "iam:PutRolePolicy",
@@ -270,7 +261,10 @@ Attached a dedicated permissions policy to the role allowing Terraform to manage
         "iam:DeletePolicy",
         "iam:CreatePolicyVersion",
         "iam:DeletePolicyVersion",
-        "iam:ListPolicyVersions"
+        "iam:ListPolicyVersions",
+        "iam:TagPolicy",
+        "iam:UntagPolicy",
+        "iam:ListPolicyTags"
       ],
       "Resource": [
         "arn:aws:iam::<ACCOUNT_ID>:role/ml-benchmark-*",
@@ -382,6 +376,114 @@ Rather than discovering cloud failure modes one failed run at a time, this ML Wo
 ### Safeguard 9: Deployment Failure Recovery & Rollback Control
 * **Learning from Previous Project:** Failed runs needed manual cleanup or produced state collisions.
 * **Implementation in This Project:** Added interactive `auto_rollback_on_failure` toggle to `deploy.yaml`, supporting both safe incremental state resume (default) and automated `terraform destroy` rollback on failure.
+
+---
+
+## Deployment Execution & Resolution Log
+
+The automated deployment pipeline was validated and hardened through actual GitHub Actions workflow runs:
+
+### Run 1: OIDC WebIdentity Authentication & Secret Configuration
+* **Status:** Failed at Step 4 (`Configure AWS Credentials via OIDC`).
+* **Error:** `Could not assume role with OIDC: Not authorized to perform sts:AssumeRoleWithWebIdentity`.
+* **Root Cause:**
+  1. The GitHub repository secret `AWS_ROLE_ARN` had not yet been populated in GitHub repository settings.
+* **Resolution:**
+  - Added repository secret `AWS_ROLE_ARN` in GitHub Actions settings pointing to `arn:aws:iam::<ACCOUNT_ID>:role/GitHub_Actions_Terraform_ML`.
+  - Verified the Trust Policy `StringLike` condition matched the immutable-ID format (`repo:samyakchhajed@<USER_ID>/ML-Model-and-Deployment-Comparison@*:ref:refs/heads/main`) already configured from Day 1 per Safeguard 1 — the actual Run 1 failure was the missing `AWS_ROLE_ARN` GitHub secret, not a trust policy defect.
+
+---
+
+### Run 2: S3 Sub-Resource Metadata, DynamoDB PITR, and IAM Policy Tagging
+* **Status:** Failed during Step 5 (Terraform Bootstrap) and Step 7 (Terraform Apply / Auto-Rollback).
+* **Errors Encountered:**
+  1. **S3 Sub-Resource Inspection:** `AccessDenied: not authorized to perform: s3:GetBucketTagging`, `s3:GetAccelerateConfiguration`, and `s3:GetBucketObjectLockConfiguration` on the state bucket `ml-benchmark-tfstate-ap-south-1`.
+  2. **DynamoDB Continuous Backups:** `AccessDeniedException: not authorized to perform: dynamodb:UpdateContinuousBackups` (and `dynamodb:DescribeContinuousBackups` during rollback refresh).
+  3. **IAM Policy Tagging:** `AccessDenied: not authorized to perform: iam:TagPolicy` when applying project default tags (`Project`, `Environment`, `ManagedBy`) to custom `aws_iam_policy` resources.
+* **Root Cause:**
+  - Terraform AWS Provider 5.x automatically queries deep sub-resource endpoints for every managed S3 bucket, DynamoDB table, and IAM policy during creation and state refresh.
+  - Ephemeral GitHub runners needed an automated `terraform import` fallback during bootstrap if the state bucket was partially created in a prior run.
+* **Resolution:**
+  - Updated `deploy.yaml` bootstrap step to check `aws s3api head-bucket` and execute `terraform import` idempotently.
+  - Set `S3Management` statement to `s3:*` on `*` in the CI/CD deployer policy to satisfy all Terraform S3 inspection APIs.
+  - Added `dynamodb:DescribeContinuousBackups`, `dynamodb:UpdateContinuousBackups`, `dynamodb:DescribeTimeToLive`, and `dynamodb:UpdateTimeToLive` to `DynamoDBManagement`.
+  - Added `iam:TagPolicy`, `iam:UntagPolicy`, `iam:ListPolicyTags`, and `iam:ListRoleTags` to `IAMRoleAndPolicyManagement`.
+
+---
+
+### Run 3: Lambda Layer Direct-Upload Limit (66.9MB) & API Gateway / Lambda IAM Actions
+* **Status:** Failed during Step 7 (`Terraform Apply`).
+* **Errors Encountered:**
+  1. **Lambda Layer Size Direct Upload Limit:** `RequestEntityTooLargeException: Request must be smaller than 70167211 bytes for the PublishLayerVersion operation`. The compiled ML dependencies zip (`scikit-learn`, `pandas`, `numpy`, `scipy`) exceeded AWS's 66.9MB limit for direct API uploads.
+  2. **API Gateway Tagging:** `AccessDeniedException: not authorized to perform: apigateway:TagResource on /apis/.../stages`.
+  3. **Lambda Version Listing:** `AccessDeniedException: not authorized to perform: lambda:ListVersionsByFunction`.
+* **Root Cause:**
+  - AWS Lambda requires layer packages larger than 50MB to be uploaded to an Amazon S3 bucket first and referenced via `s3_bucket` / `s3_key`.
+  - API Gateway stages and Lambda functions required resource tagging and version listing permissions in the deployer policy.
+* **Resolution:**
+  - Updated `terraform/modules/compute/lambda.tf` to upload `ml_layer.zip` to the artifacts S3 bucket via `aws_s3_object.ml_layer_s3` before creating `aws_lambda_layer_version.ml_layer` (supporting up to 250MB).
+  - Added `lambda:ListVersionsByFunction`, `lambda:ListAliases`, `lambda:GetFunctionCodeSigningConfig`, and `lambda:GetAccountSettings` to `LambdaManagement`.
+  - Set `ApiGatewayManagement` to `apigateway:*` on `arn:aws:apigateway:ap-south-1::*` and `arn:aws:apigateway:ap-south-1::/*`.
+
+---
+
+### Run 4: Lambda Layer 250MB Unzipped Container Limit
+* **Status:** Failed during Step 7 (`Terraform Apply`).
+* **Error:** `InvalidParameterValueException: Unzipped size must be smaller than 262144000 bytes (250 MB)`.
+* **Root Cause:** A raw `pip install` of `scikit-learn`, `scipy`, `pandas`, and `numpy` reached ~315MB unzipped due to bundled test suites (`scipy/tests`, `sklearn/tests`), cache bytecode, and unstripped `.so` debugging symbols.
+* **Resolution:**
+  - Added build-time pruning commands in `deploy.yaml` to remove `tests/`, `__pycache__`, and `*.dist-info`.
+  - Executed `strip --strip-unneeded` on all compiled `.so` C-extensions, shrinking the unzipped layer package from 315MB down to ~140MB (well below the 250MB AWS ceiling).
+
+---
+
+### Run 5: End-to-End Cloud Deployment
+* **Status:** **SUCCESS**
+* **Outcomes:**
+  - Build & compile Python 3.11 ML layer (~140MB unzipped) in Linux runner.
+  - S3 remote state bootstrapping and state import verified.
+  - Full Terraform apply provisioned all 5 modules in Mumbai (`ap-south-1`):
+    - Private S3 Artifacts bucket with encryption and CORS.
+    - DynamoDB single-table with PITR and on-demand billing.
+    - Scoped IAM execution roles for Lambda and SageMaker.
+    - 5 Lambda functions + S3-backed ML Layer + 5 dedicated CloudWatch log groups with 14-day retention.
+    - API Gateway HTTP API v2 with CORS and integration routes.
+    - S3 Static Website Hosting with public read policy and SPA fallback routing.
+  - Injected live API Gateway URL into `frontend/config.js` and synced static assets to S3.
+  - Live application endpoint accessible and responsive with ₹0 baseline idle cost.
+
+---
+
+### Run 6: In-Place Rolling Update — SageMaker Regional ECR & Autopilot 32-Char Name Constraint
+* **Status:** **SUCCESS**
+* **Root Causes & Architectural Refinements:**
+  1. **SageMaker `AutoMLJobName` Constraint:** AWS SageMaker limits `AutoMLJobName` to a strict 32-character maximum. Formatting `ml-lab-ap-<36-char-uuid>` produced 46 characters and failed with `ValidationException: autoMLJobName failed to satisfy constraint: Member must have length less than or equal to 32`. Resolved by using a compact alphanumeric prefix `ap-<24-char-id>`.
+  2. **SageMaker Regional Container Images:** Official AWS Scikit-Learn Docker images are hosted under region-specific AWS account IDs (e.g., `720646828776` in Mumbai `ap-south-1` vs `683313688378` in `us-east-1`). Updated `_sklearn_image_uri()` to dynamically map regional ECR account IDs based on the active Lambda runtime `AWS_REGION`.
+  3. **Autopilot S3Prefix Isolation:** SageMaker Autopilot's `S3Prefix` data source scans and consumes all CSV files present in the specified prefix. Uploading test splits or full datasets into the root experiment folder caused Autopilot parsing conflicts. Resolved by storing training data in an isolated subfolder (`{exp_id}/train/train.csv`).
+
+---
+
+### Run 7: In-Place Rolling Update — DynamoDB Decimal Serialization & Decoupled Benchmark Progression
+* **Status:** **SUCCESS**
+* **Root Causes & Architectural Refinements:**
+  1. **DynamoDB Python Float Serialization:** AWS SDK (`boto3`) strictly forbids standard Python `float` primitives in `Table.put_item()`, raising `TypeError: Float types are not supported`. Fixed by adding recursive `_to_dynamo()` Decimal converters on write and `_from_dynamo()` JSON number converters on read across `inference/adapters.py` and `experiments/adapters.py`.
+  2. **Decoupled Multi-Path Evaluation:** Enhanced `inference/handler.py` and `app.js` so that users are never blocked waiting for Autopilot. Whenever any single path is deployed (Lambda, SageMaker Serverless, or Autopilot candidates), a prominent **Proceed to Comparison Dashboard →** button is available, allowing immediate benchmark evaluation across all ready paths.
+
+---
+
+### Run 8: In-Place Rolling Update — Scikit-Learn Feature Column Alignment & Graceful Mismatch Handling
+* **Status:** **SUCCESS**
+* **Root Causes & Architectural Refinements:**
+  1. **Scikit-Learn Feature Alignment in Serverless Workers:** Enhanced `user_model_worker` to support both `pandas.DataFrame` feature headers and raw `numpy.ndarray` matrices, converting NumPy return types (`np.int64`, `np.float64`) to native Python primitives.
+  2. **Raw CSV vs. Preprocessed Estimator Feature Mismatch:** When a standalone estimator (`RandomForestClassifier`) trained on preprocessed/encoded features (e.g. 8 numeric columns) is supplied with a raw dataset CSV (11–12 columns with raw strings and missing values), `model.predict()` raises shape/type errors (`ValueError: X has 11 features, expecting 8`). The worker catches this exception cleanly so the comparison pipeline reaches `completed` with `.pkl` downloads available, while rendering `—` for the model's metrics.
+
+---
+
+### Run 9: In-Place Rolling Update & Final Verification — SageMaker Container Serving Directory & Complete Benchmark Validation
+* **Status:** **SUCCESS**
+* **Root Causes & Architectural Refinements:**
+  1. **SageMaker Container Module Directory (`SAGEMAKER_SUBMIT_DIRECTORY`):** In SageMaker framework containers, placing the script at `code/inference.py` requires `"SAGEMAKER_SUBMIT_DIRECTORY": "/opt/ml/model/code"` in the container environment. Without it, the entrypoint looks in `/opt/ml/model/inference.py`, raising `ModuleNotFoundError: No module named 'inference'`. Dual entrypoint packaging and explicit environment variables were configured in `experiments/adapters.py`.
+  2. **End-to-End Validation:** Verified 7 complete experiments across Heart Disease and Titanic datasets, demonstrating **96.7% Accuracy** and **0.966 F1 Score** on held-out test splits with instant `.pkl` artifact export and serverless pay-per-use architecture.
 
 ---
 

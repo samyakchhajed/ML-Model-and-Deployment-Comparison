@@ -85,6 +85,29 @@ The platform is built on a *serverless, pay-per-use* architecture deployed in th
 
 ---
 
-## Screenshots
+## Screenshots & Visual Proofs
 
-Visual walkthroughs and interface screenshots illustrating the experiments dashboard, dataset configuration, model deployment tracking, and side-by-side comparison results are organized in the `screenshots/` directory.
+The [`screenshots/`](file:///d:/Projects/ML-Model-and-Deployment-Comparison/screenshots) directory contains a complete visual walkthrough of the platform's infrastructure, deployment lifecycle, debugging resolutions, and machine learning benchmarking results:
+
+| # | Screenshot | Category | Description |
+|---|---|---|---|
+| **01** | `01_github_actions_deploy_success.png` | CI/CD Pipeline | Automated GitHub Actions workflow run provisioning Terraform modules and S3 web hosting assets. |
+| **02** | `02_workbench_home_empty_state.png` | Web UI | Experiments workbench home page in clean initial state with `+ New Experiment` action. |
+| **03** | `03_github_actions_workflow_runs.png` | CI/CD Pipeline | Full deployment history across all CI/CD pipeline runs. |
+| **04** | `04_new_experiment_form_clean.png` | Web UI | New Experiment form with drag-and-drop dataset upload and target column configuration. |
+| **05** | `05_new_experiment_heart_dataset_filled.png` | Web UI | Experiment creation with Heart Disease dataset, target column `target`, and auto 80/20 train/test split. |
+| **06** | `06_model_setup_upload_step.png` | Web UI | Step 2 Model Setup view allowing custom Scikit-Learn `.pkl` upload and deployment path selection. |
+| **07** | `07_model_setup_autopilot_quota_limit.png` | Diagnostics | Informative error handling when hitting default AWS account AutoML quota limits. |
+| **08** | `08_aws_cloudwatch_5_log_groups.png` | AWS Cloud | 5 dedicated CloudWatch log groups provisioned with 14-day log retention. |
+| **09** | `09_aws_apigateway_http_api.png` | AWS Cloud | Amazon API Gateway HTTP API (v2) console with CORS and proxy integrations in Mumbai (`ap-south-1`). |
+| **10** | `10_aws_lambda_5_functions.png` | AWS Cloud | AWS Lambda Console listing all 5 serverless microservices. |
+| **11** | `11_aws_lambda_ml_layer.png` | AWS Cloud | AWS Lambda ML Layer (~140MB unzipped) providing Scikit-Learn, Pandas, and NumPy runtimes. |
+| **12** | `12_model_setup_both_deployed_ready.png` | Web UI | Model Setup step with Lambda and SageMaker Serverless in `deployed` status ready for evaluation. |
+| **13** | `13_dashboard_comparison_failed_debug.png` | Diagnostics | Comparison Dashboard during DynamoDB Decimal serialization diagnosis. |
+| **14** | `14_dashboard_heart_lambda_success.png` | Benchmarks | Successful benchmark evaluation on Heart Disease dataset via serverless Lambda execution. |
+| **15** | `15_dashboard_titanic_raw_feature_mismatch.png` | Diagnostics | Graceful error isolation when evaluating pre-encoded estimators against raw un-encoded datasets. |
+| **16** | `16_aws_sagemaker_console_models.png` | AWS Cloud | Amazon SageMaker Console displaying provisioned `ml-lab-exp-...` model definitions. |
+| **17** | `17_aws_sagemaker_console_endpoints.png` | AWS Cloud | Amazon SageMaker Console displaying Serverless Endpoints in `InService` state. |
+| **18** | `18_dashboard_titanic_rf_success_96acc.png` | Benchmarks | Winning Evaluation: Titanic Random Forest on Lambda achieving 96.7% Accuracy, 0.966 F1, and `.pkl` artifact export. |
+| **19** | `19_workbench_experiments_list_populated.png` | Web UI | Populated Experiments Workbench showing all 7 experiment runs, status badges, and summary cards. |
+
