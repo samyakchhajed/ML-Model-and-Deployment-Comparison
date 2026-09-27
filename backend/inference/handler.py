@@ -87,14 +87,17 @@ def _route(event):
 
 def start_compare(exp_id):
     meta      = adapters.get_meta(exp_id)
+    model     = adapters.get_model(exp_id)
     autopilot = adapters.get_autopilot(exp_id)
 
     if not meta:
         return not_found(f"Experiment '{exp_id}' not found")
-    if not autopilot or autopilot.get("status") != "Completed":
-        return bad_request("Autopilot job must be completed before running comparison")
-    if not autopilot.get("candidates"):
-        return bad_request("No Autopilot candidates found")
+
+    has_deployed_model = bool(model and (model.get("lambda_fn_name") or model.get("sagemaker_serverless_endpoint")))
+    has_autopilot_candidates = bool(autopilot and autopilot.get("candidates"))
+
+    if not has_deployed_model and not has_autopilot_candidates:
+        return bad_request("Deploy a model (to Lambda or SageMaker) or complete Autopilot before running comparison")
 
     # Clear any previous results and mark as running
     adapters.clear_results(exp_id)
@@ -125,7 +128,7 @@ def _run_worker(exp_id: str) -> None:
     Executes the full comparison pipeline:
     1. Load X_test and y_test from S3.
     2. Run Lambda + SageMaker inference for user model (if present).
-    3. Run Batch Transform for all Autopilot candidates (in parallel).
+    3. Run Batch Transform for all Autopilot candidates (if present, in parallel).
     4. Compute metrics against y_test.
     5. Store results + download URLs in DynamoDB.
     """
@@ -188,12 +191,15 @@ def _run_worker(exp_id: str) -> None:
                 except Exception as e:
                     results["sagemaker_result"] = {"error": str(e)}
 
-        # --- Autopilot candidate Batch Transform (parallel) ----------------------
-        candidates = autopilot.get("candidates", [])
-        candidate_results = _run_batch_transform_parallel(
-            exp_id, candidates, split["test_features_s3_uri"], y_true, problem_type
-        )
-        results["candidate_results"] = candidate_results
+        # --- Autopilot candidate Batch Transform (parallel) if available ---------
+        candidates = autopilot.get("candidates", []) if autopilot else []
+        if candidates:
+            candidate_results = _run_batch_transform_parallel(
+                exp_id, candidates, split["test_features_s3_uri"], y_true, problem_type
+            )
+            results["candidate_results"] = candidate_results
+        else:
+            results["candidate_results"] = []
 
         # --- Best model ----------------------------------------------------------
         results["best_model"] = _find_best_model(results, problem_type)

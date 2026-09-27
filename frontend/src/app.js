@@ -337,7 +337,7 @@ async function modelSetup({ id }) {
     const smDeployed     = !!exp.model?.sagemaker_serverless_endpoint
     const apRunning      = exp.autopilot?.status === 'InProgress'
     const apDone         = exp.autopilot?.status === 'Completed'
-    const readyForNext   = apDone && (hasModel ? (lambdaDeployed && smDeployed) : true)
+    const hasAnyReady    = lambdaDeployed || smDeployed || apDone || (exp.autopilot?.candidates?.length > 0)
 
     root().innerHTML = html`
       <div style="max-width:780px">
@@ -423,11 +423,24 @@ async function modelSetup({ id }) {
           ` : ''}
         </div>
 
-        ${readyForNext ? html`
-          <div style="display:flex;justify-content:flex-end">
-            <a href="#/experiment/${id}/comparison" class="btn btn-primary btn-lg" id="go-to-comparison-btn">Go to Comparison Dashboard →</a>
+        <div class="card" style="margin-top:24px;border-color:rgba(99,102,241,.25);background:linear-gradient(135deg,rgba(99,102,241,.06),rgba(20,184,166,.04));padding:20px 24px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px">
+            <div>
+              <div style="font-weight:700;font-size:15px;color:var(--text-primary)">
+                ${hasAnyReady ? 'Ready for Benchmark Evaluation' : 'Skip Ahead to Dashboard'}
+              </div>
+              <div style="font-size:13px;color:var(--text-secondary);margin-top:2px">
+                ${lambdaDeployed ? '⚡ Lambda Deployed  ' : ''}
+                ${smDeployed ? '🤖 SageMaker Endpoint Ready  ' : ''}
+                ${apDone ? '🧠 Autopilot Ready' : ''}
+                ${!hasAnyReady ? 'Proceed to view comparison dashboard at any time.' : ''}
+              </div>
+            </div>
+            <a href="#/experiment/${id}/comparison" class="btn btn-primary btn-lg" id="go-to-comparison-btn">
+              Proceed to Comparison Dashboard →
+            </a>
           </div>
-        ` : ''}
+        </div>
       </div>
     `
 
@@ -529,47 +542,75 @@ async function comparison({ id }) {
   function buildRows(results) {
     if (!results) return []
     const hasModel = !!exp.model?.model_s3_uri
+    const lambdaRes = results.lambda_result
+    const smRes     = results.sagemaker_result
+    const lambdaM   = lambdaRes?.metrics || {}
+    const smM       = smRes?.metrics || {}
 
-    return [
-      ...(hasModel ? [
-        {
+    const rows = []
+    if (hasModel) {
+      if (lambdaRes || exp.model?.lambda_fn_name) {
+        rows.push({
           name: 'Your Model', path: 'Lambda', icon: '⚡', algorithm: 'Your .pkl',
-          predictions: results.lambda_predictions,
-          // Classification metrics
-          accuracy: results.lambda_accuracy, f1: results.lambda_f1, precision: results.lambda_precision, recall: results.lambda_recall,
-          // Regression metrics
-          r2: results.lambda_r2, rmse: results.lambda_rmse, mae: results.lambda_mae, mape: results.lambda_mape,
+          predictions: lambdaRes?.predictions || results.lambda_predictions,
+          accuracy: lambdaM.accuracy ?? results.lambda_accuracy,
+          f1: lambdaM.f1 ?? results.lambda_f1,
+          precision: lambdaM.precision ?? results.lambda_precision,
+          recall: lambdaM.recall ?? results.lambda_recall,
+          r2: lambdaM.r2 ?? results.lambda_r2,
+          rmse: lambdaM.rmse ?? results.lambda_rmse,
+          mae: lambdaM.mae ?? results.lambda_mae,
+          mape: lambdaM.mape ?? results.lambda_mape,
           download_filename: `${exp.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}-model.pkl`,
           download_label: '.pkl',
-          download_uri: exp.model?.model_s3_uri || `s3://ml-lab-artifacts/${id}/model.pkl`,
+          download_uri: lambdaRes?.download_url || exp.model?.model_s3_uri,
           isYours: true,
-        },
-        {
+          error: lambdaRes?.error,
+        })
+      }
+      if (smRes || exp.model?.sagemaker_serverless_endpoint) {
+        rows.push({
           name: 'Your Model', path: 'SageMaker', icon: '🤖', algorithm: 'Your .pkl',
-          predictions: results.sagemaker_predictions,
-          // Classification metrics
-          accuracy: results.sagemaker_accuracy, f1: results.sagemaker_f1, precision: results.sagemaker_precision, recall: results.sagemaker_recall,
-          // Regression metrics
-          r2: results.sagemaker_r2, rmse: results.sagemaker_rmse, mae: results.sagemaker_mae, mape: results.sagemaker_mape,
+          predictions: smRes?.predictions || results.sagemaker_predictions,
+          accuracy: smM.accuracy ?? results.sagemaker_accuracy,
+          f1: smM.f1 ?? results.sagemaker_f1,
+          precision: smM.precision ?? results.sagemaker_precision,
+          recall: smM.recall ?? results.sagemaker_recall,
+          r2: smM.r2 ?? results.sagemaker_r2,
+          rmse: smM.rmse ?? results.sagemaker_rmse,
+          mae: smM.mae ?? results.sagemaker_mae,
+          mape: smM.mape ?? results.sagemaker_mape,
           download_filename: `${exp.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}-model.pkl`,
           download_label: '.pkl',
-          download_uri: exp.model?.model_s3_uri || `s3://ml-lab-artifacts/${id}/model.pkl`,
+          download_uri: smRes?.download_url || exp.model?.model_s3_uri,
           isYours: true,
-        },
-      ] : []),
-      ...(results.candidate_results || []).map((c, i) => ({
+          error: smRes?.error,
+        })
+      }
+    }
+
+    (results.candidate_results || []).forEach((c, i) => {
+      const cm = c.metrics || {}
+      rows.push({
         name: `Autopilot #${i + 1}`, path: c.algorithm, icon: '🧠', algorithm: c.algorithm,
         predictions: c.predictions,
-        // Classification metrics
-        accuracy: c.accuracy, f1: c.f1, precision: c.precision, recall: c.recall,
-        // Regression metrics
-        r2: c.r2, rmse: c.rmse, mae: c.mae, mape: c.mape,
+        accuracy: cm.accuracy ?? c.accuracy,
+        f1: cm.f1 ?? c.f1,
+        precision: cm.precision ?? c.precision,
+        recall: cm.recall ?? c.recall,
+        r2: cm.r2 ?? c.r2,
+        rmse: cm.rmse ?? c.rmse,
+        mae: cm.mae ?? c.mae,
+        mape: cm.mape ?? c.mape,
         download_filename: `${exp.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}-candidate-${i + 1}-${c.algorithm.toLowerCase().replace(/[^a-z0-9]/g, '-')}.tar.gz`,
         download_label: '.tar.gz',
-        download_uri: c.model_s3_uri || `s3://ml-lab-artifacts/${id}/autopilot/candidate-${i + 1}/model.tar.gz`,
+        download_uri: c.download_url || c.model_s3_uri,
         isYours: false,
-      })),
-    ]
+        error: c.error,
+      })
+    })
+
+    return rows
   }
 
   function renderPage() {

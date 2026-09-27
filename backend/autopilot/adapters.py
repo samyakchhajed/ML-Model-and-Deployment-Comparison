@@ -41,7 +41,9 @@ def start_autopilot_job(exp_id: str, train_s3_uri: str, target_col: str, problem
     The job reads from the training split S3 URI produced at dataset upload time.
     Returns the job name.
     """
-    job_name    = f"ml-lab-ap-{exp_id}"
+    # SageMaker AutoMLJobName max length is 32 chars: ^[a-zA-Z0-9](-*[a-zA-Z0-9]){0,31}$
+    clean_id    = exp_id.replace("-", "")[:24]
+    job_name    = f"ap-{clean_id}"
     output_path = f"s3://{BUCKET}/{AUTOPILOT_OUT}/{exp_id}/"
 
     # S3DataSource requires an S3 prefix pointing to the folder containing the CSV
