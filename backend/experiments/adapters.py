@@ -8,6 +8,8 @@ Resource names are injected by Terraform as environment variables:
   SAGEMAKER_EXEC_ROLE     — IAM role ARN for SageMaker operations
   AWS_REGION              — injected automatically by the Lambda runtime
 """
+
+from decimal import Decimal
 import io
 import os
 import json
@@ -16,6 +18,15 @@ import tempfile
 
 import boto3
 from boto3.dynamodb.conditions import Attr
+
+def _from_dynamo(val):
+    if isinstance(val, Decimal):
+        return int(val) if val % 1 == 0 else float(val)
+    if isinstance(val, dict):
+        return {k: _from_dynamo(v) for k, v in val.items()}
+    if isinstance(val, list):
+        return [_from_dynamo(v) for v in val]
+    return val
 
 # ── Lazy-initialised AWS clients ─────────────────────────────────────────────────
 
@@ -151,7 +162,9 @@ def get_autopilot(exp_id: str) -> dict | None:
 def get_results(exp_id: str) -> dict | None:
     r = _table().get_item(Key={"PK": f"EXP#{exp_id}", "SK": "RESULTS"})
     item = r.get("Item")
-    return _strip_keys(item) if item else None
+    if not item:
+        return None
+    return _from_dynamo(_strip_keys(item))
 
 
 def update_status(exp_id: str, status: str) -> None:

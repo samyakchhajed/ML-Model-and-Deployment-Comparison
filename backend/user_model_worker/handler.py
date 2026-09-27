@@ -26,6 +26,7 @@ import hashlib
 import traceback
 
 import numpy as np
+import pandas as pd
 import boto3
 
 _s3    = None
@@ -44,10 +45,26 @@ def lambda_handler(event, context):
     try:
         model_s3_uri: str  = event["model_s3_uri"]
         features:     list = event["features"]
+        columns:      list = event.get("columns", [])
 
         model = _load_model(model_s3_uri)
-        X     = np.array(features)
-        preds = model.predict(X).tolist()
+        if columns:
+            X = pd.DataFrame(features, columns=columns)
+        else:
+            X = np.array(features)
+
+        try:
+            raw_preds = model.predict(X)
+        except Exception:
+            if isinstance(X, pd.DataFrame):
+                raw_preds = model.predict(X.values)
+            else:
+                raw_preds = model.predict(pd.DataFrame(X))
+
+        preds = [
+            p.item() if hasattr(p, "item") else p
+            for p in raw_preds
+        ]
 
         return {"predictions": preds}
 

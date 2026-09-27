@@ -8,6 +8,7 @@ Environment variables (injected by Terraform):
   BATCH_OUTPUT_PREFIX      — S3 prefix for Batch Transform output
   AWS_LAMBDA_FUNCTION_NAME — auto-injected by Lambda runtime (used for self-invocation)
 """
+from decimal import Decimal
 import io
 import os
 import json
@@ -22,6 +23,25 @@ TABLE               = os.environ.get("DYNAMODB_TABLE", "")
 BATCH_ROLE          = os.environ.get("BATCH_TRANSFORM_ROLE", "")
 BATCH_OUT_PREFIX    = os.environ.get("BATCH_OUTPUT_PREFIX", "batch-output")
 SELF_FN_NAME        = os.environ.get("AWS_LAMBDA_FUNCTION_NAME", "")
+
+# DynamoDB float serialization helpers
+def _to_dynamo(val):
+    if isinstance(val, float):
+        return Decimal(str(val))
+    if isinstance(val, dict):
+        return {k: _to_dynamo(v) for k, v in val.items()}
+    if isinstance(val, list):
+        return [_to_dynamo(v) for v in val]
+    return val
+
+def _from_dynamo(val):
+    if isinstance(val, Decimal):
+        return int(val) if val % 1 == 0 else float(val)
+    if isinstance(val, dict):
+        return {k: _from_dynamo(v) for k, v in val.items()}
+    if isinstance(val, list):
+        return [_from_dynamo(v) for v in val]
+    return val
 
 # Lazy-initialised clients
 _s3    = None
@@ -98,13 +118,16 @@ def _key_from_uri(s3_uri: str) -> str:
 
 # ── Lambda invoke (user_model_worker) ─────────────────────────────────────────────
 
-def invoke_lambda(fn_name: str, model_s3_uri: str, features: list) -> list:
+def invoke_lambda(fn_name: str, model_s3_uri: str, features: list, columns: list = None) -> list:
     """
     Invoke the user_model_worker Lambda synchronously.
-    Payload: {"model_s3_uri": "...", "features": [[...]]}
+    Payload: {"model_s3_uri": "...", "features": [[...]], "columns": [...]}
     Returns list of predictions.
     """
-    payload = json.dumps({"model_s3_uri": model_s3_uri, "features": features}).encode()
+    payload_dict = {"model_s3_uri": model_s3_uri, "features": features}
+    if columns:
+        payload_dict["columns"] = columns
+    payload = json.dumps(payload_dict).encode()
     response = _lambda_client().invoke(
         FunctionName=fn_name,
         InvocationType="RequestResponse",
@@ -252,11 +275,14 @@ def get_autopilot(exp_id: str) -> dict | None:
 def get_results(exp_id: str) -> dict | None:
     r = _table().get_item(Key={"PK": f"EXP#{exp_id}", "SK": "RESULTS"})
     item = r.get("Item")
-    return _strip_keys(item) if item else None
+    if not item:
+        return None
+    return _from_dynamo(_strip_keys(item))
 
 
 def put_results(exp_id: str, results: dict) -> None:
-    _table().put_item(Item={"PK": f"EXP#{exp_id}", "SK": "RESULTS", **results})
+    clean_results = _to_dynamo(results)
+    _table().put_item(Item={"PK": f"EXP#{exp_id}", "SK": "RESULTS", **clean_results})
 
 
 def clear_results(exp_id: str) -> None:

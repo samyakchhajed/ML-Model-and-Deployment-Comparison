@@ -70,7 +70,16 @@ def start_autopilot_job(exp_id: str, train_s3_uri: str, target_col: str, problem
     if problem_type == "regression":
         kwargs["ProblemType"] = "Regression"
 
-    _sagemaker().create_auto_ml_job(**kwargs)
+    try:
+        _sagemaker().create_auto_ml_job(**kwargs)
+    except Exception as exc:
+        err_str = str(exc)
+        if "ResourceLimitExceeded" in err_str or "limit 'Maximum number" in err_str:
+            raise RuntimeError(
+                "AWS Account Service Quota: Concurrent AutoML Jobs quota is 0 in this region. "
+                "Request a limit increase in AWS Service Quotas console, or evaluate your model using Lambda / SageMaker Serverless."
+            )
+        raise RuntimeError(f"SageMaker Autopilot error: {err_str}")
     return job_name
 
 

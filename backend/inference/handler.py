@@ -167,6 +167,7 @@ def _run_worker(exp_id: str) -> None:
                         model["lambda_fn_name"],
                         model["model_s3_uri"],
                         features,
+                        columns=feature_cols,
                     )
                     results["lambda_result"] = {
                         "predictions":   lambda_preds,
@@ -278,23 +279,24 @@ def _compute_metrics(predictions: list, y_true: list, problem_type: str) -> dict
     Classification: Accuracy, F1 (weighted), Precision (weighted), Recall (weighted)
     Regression:     R², RMSE, MAE, MAPE
     """
-    y_pred = np.array(predictions)
-    y_real = np.array(y_true)
-
     if problem_type == "classification":
+        y_real_str = [str(v).strip() for v in y_true]
+        y_pred_str = [str(v).strip() for v in predictions]
         return {
-            "accuracy":  round(float(accuracy_score(y_real, y_pred)), 4),
-            "f1":        round(float(f1_score(y_real, y_pred, average="weighted", zero_division=0)), 4),
-            "precision": round(float(precision_score(y_real, y_pred, average="weighted", zero_division=0)), 4),
-            "recall":    round(float(recall_score(y_real, y_pred, average="weighted", zero_division=0)), 4),
+            "accuracy":  round(float(accuracy_score(y_real_str, y_pred_str)), 4),
+            "f1":        round(float(f1_score(y_real_str, y_pred_str, average="weighted", zero_division=0)), 4),
+            "precision": round(float(precision_score(y_real_str, y_pred_str, average="weighted", zero_division=0)), 4),
+            "recall":    round(float(recall_score(y_real_str, y_pred_str, average="weighted", zero_division=0)), 4),
         }
     else:  # regression
-        mse  = float(mean_squared_error(y_real, y_pred))
+        y_real_num = np.asarray(y_true, dtype=float)
+        y_pred_num = np.asarray(predictions, dtype=float)
+        mse  = float(mean_squared_error(y_real_num, y_pred_num))
         return {
-            "r2":   round(float(r2_score(y_real, y_pred)), 4),
+            "r2":   round(float(r2_score(y_real_num, y_pred_num)), 4),
             "rmse": round(float(mse ** 0.5), 4),
-            "mae":  round(float(mean_absolute_error(y_real, y_pred)), 4),
-            "mape": round(float(mean_absolute_percentage_error(y_real, y_pred)), 4),
+            "mae":  round(float(mean_absolute_error(y_real_num, y_pred_num)), 4),
+            "mape": round(float(mean_absolute_percentage_error(y_real_num, y_pred_num)), 4),
         }
 
 

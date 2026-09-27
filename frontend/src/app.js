@@ -620,11 +620,17 @@ async function comparison({ id }) {
     const rows = buildRows(results)
     const testSource = exp.split?.test_source || exp.test_source || 'auto_split'
 
-    // Primary score for comparison
-    const bestScore = rows.length
-      ? (isReg ? Math.max(...rows.map(r => r.r2 ?? -Infinity)) : Math.max(...rows.map(r => r.accuracy ?? -Infinity)))
-      : null
-    const isBest = r => isReg ? (r.r2 != null && r.r2 === bestScore) : (r.accuracy != null && r.accuracy === bestScore)
+    const validScores = rows
+      .map(r => isReg ? r.r2 : r.accuracy)
+      .filter(s => s != null && !isNaN(s))
+    const bestScore = validScores.length ? Math.max(...validScores) : null
+    const isBest = r => isReg
+      ? (r.r2 != null && r.r2 === bestScore)
+      : (r.accuracy != null && r.accuracy === bestScore)
+
+    const bestModelName = typeof results?.best_model === 'object' && results?.best_model !== null
+      ? (results.best_model.label || results.best_model.name)
+      : (results?.best_model || (rows[0]?.name ? `${rows[0].name} (${rows[0].path})` : 'Model Evaluation'))
 
     root().innerHTML = html`
       <div>
@@ -643,6 +649,7 @@ async function comparison({ id }) {
         </div>
 
         <div id="page-error"></div>
+        ${results?.error ? alert('danger', '⚠️', `<strong>Evaluation notice:</strong> ${esc(results.error)}`) : ''}
 
         ${!results ? html`
           <div class="card" style="text-align:center;padding:48px">
@@ -659,20 +666,22 @@ async function comparison({ id }) {
           </div>
         ` : html`
           <!-- Best model banner -->
-          <div class="card" style="margin-bottom:24px;background:linear-gradient(135deg,rgba(99,102,241,.12),rgba(139,92,246,.08));border-color:rgba(99,102,241,.3)">
-            <div style="display:flex;align-items:center;gap:16px">
-              <div style="font-size:40px">🏆</div>
-              <div>
-                <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:4px">Best Performing Model</div>
-                <div style="font-size:22px;font-weight:800;color:var(--accent-bright)">${esc(results.best_model)}</div>
-                <div style="font-size:13px;color:var(--text-secondary);margin-top:4px">
-                  ${isReg
-                    ? `Highest R² Score: ${(bestScore ?? 0).toFixed(3)} on the test dataset`
-                    : `Highest Accuracy: ${(bestScore ?? 0).toFixed(3)} on the test dataset`}
+          ${bestScore != null ? html`
+            <div class="card" style="margin-bottom:24px;background:linear-gradient(135deg,rgba(99,102,241,.12),rgba(139,92,246,.08));border-color:rgba(99,102,241,.3)">
+              <div style="display:flex;align-items:center;gap:16px">
+                <div style="font-size:40px">🏆</div>
+                <div>
+                  <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:4px">Best Performing Model</div>
+                  <div style="font-size:22px;font-weight:800;color:var(--accent-bright)">${esc(bestModelName)}</div>
+                  <div style="font-size:13px;color:var(--text-secondary);margin-top:4px">
+                    ${isReg
+                      ? `Highest R² Score: ${(bestScore ?? 0).toFixed(3)} on the test dataset`
+                      : `Highest Accuracy: ${(bestScore ?? 0).toFixed(3)} on the test dataset`}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          ` : ''}
 
           <!-- Table -->
           <div class="card" style="padding:0;overflow:hidden">
