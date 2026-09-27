@@ -206,7 +206,10 @@ def create_serverless_endpoint(exp_id: str, model_s3_uri: str) -> str:
         PrimaryContainer={
             "Image":        _sklearn_image_uri(),
             "ModelDataUrl": bundle_s3_uri,
-            "Environment":  {"SAGEMAKER_PROGRAM": "inference.py"},
+            "Environment":  {
+                "SAGEMAKER_PROGRAM":          "inference.py",
+                "SAGEMAKER_SUBMIT_DIRECTORY": "/opt/ml/model/code",
+            },
         },
         ExecutionRoleArn=SM_EXEC_ROLE,
     )
@@ -240,13 +243,14 @@ def _download_s3_bytes(s3_uri: str) -> bytes:
 
 
 def _build_sagemaker_bundle(exp_id: str, pkl_bytes: bytes) -> str:
-    """Create model.tar.gz containing model.pkl + code/inference.py, upload to S3."""
+    """Create model.tar.gz containing model.pkl + code/inference.py + inference.py, upload to S3."""
     inference_py = _inference_script().encode("utf-8")
 
     with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
         with tarfile.open(tmp.name, "w:gz") as tar:
             _tar_add_bytes(tar, pkl_bytes,    "model.pkl")
             _tar_add_bytes(tar, inference_py, "code/inference.py")
+            _tar_add_bytes(tar, inference_py, "inference.py")
         tmp_path = tmp.name
 
     with open(tmp_path, "rb") as f:
@@ -295,6 +299,7 @@ def _inference_script() -> str:
     return '''\
 import os, json, pickle
 import numpy as np
+import pandas as pd
 
 def model_fn(model_dir):
     with open(os.path.join(model_dir, "model.pkl"), "rb") as f:
@@ -302,11 +307,23 @@ def model_fn(model_dir):
 
 def input_fn(request_body, content_type="application/json"):
     payload = json.loads(request_body)
-    return np.array(payload["features"])
+    features = payload["features"]
+    columns  = payload.get("columns")
+    if columns:
+        return pd.DataFrame(features, columns=columns)
+    return np.array(features)
 
 def predict_fn(input_data, model):
-    return model.predict(input_data).tolist()
+    try:
+        raw_preds = model.predict(input_data)
+    except Exception:
+        if isinstance(input_data, pd.DataFrame):
+            raw_preds = model.predict(input_data.values)
+        else:
+            raw_preds = model.predict(pd.DataFrame(input_data))
+    return [p.item() if hasattr(p, "item") else p for p in raw_preds]
 
 def output_fn(prediction, accept="application/json"):
     return json.dumps({"predictions": prediction}), accept
 '''
+

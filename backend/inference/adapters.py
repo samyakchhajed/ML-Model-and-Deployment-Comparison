@@ -146,7 +146,10 @@ def invoke_sagemaker_endpoint(endpoint_name: str, X_test_df: pd.DataFrame) -> li
     Invoke a SageMaker Serverless endpoint with feature rows as JSON.
     The endpoint uses the inference.py bundled at deploy time.
     """
-    payload = json.dumps({"features": X_test_df.values.tolist()})
+    payload = json.dumps({
+        "features": X_test_df.values.tolist(),
+        "columns":  X_test_df.columns.tolist(),
+    })
     response = _sagemaker_runtime().invoke_endpoint(
         EndpointName=endpoint_name,
         ContentType="application/json",
