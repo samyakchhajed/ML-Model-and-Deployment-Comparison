@@ -78,11 +78,13 @@ This document records every significant design decision made for this project, i
 **Chosen:** SageMaker Serverless Inference endpoint.
 **Rejected:** Persistent SageMaker real-time endpoint.
 **Why:** Serverless scales to zero between calls. No persistent endpoint cost. This is a personal experimentation tool, not a production traffic handler.
+**Status:** implemented. Models were created, but the endpoints failed on account-level access errors, so this path was never benchmarked.
 
 ### Decision: SageMaker Autopilot capped at 5 candidates
 **Chosen:** `MaxCandidates = 5`, training job runs ~10–15 minutes.
 **Rejected:** Uncapped Autopilot (can run for hours and train dozens of candidates).
 **Why:** Keeps the experiment fast and cost-controlled. Five candidates gives enough variety for a meaningful comparison without excessive cost or waiting.
+**Status:** implemented, but blocked by the new-account AutoML concurrent jobs quota of 0, so no Autopilot job ran. The UI shows this path as `Ready` before a job has ever been started.
 
 ### Decision: Batch Transform for Autopilot candidate inference
 **Chosen:** Run SageMaker Batch Transform jobs concurrently across the candidates (managed via a thread pool inside the asynchronous worker), pointing directly at each candidate's S3 model artifact.
@@ -92,6 +94,7 @@ This document records every significant design decision made for this project, i
 - The test dataset is a one-off batch evaluation CSV, not a continuous stream of real-time traffic. A persistent real-time endpoint introduces unnecessary operational overhead.
 - Batch Transform provisions compute on demand for the exact duration of the evaluation and terminates automatically upon completion, preventing orphaned resources or unexpected charges.
 - Fits the asynchronous execution and polling pattern cleanly.
+**Status:** implemented but not exercised. Autopilot never ran, so no Batch Transform job ran.
 
 ### Decision: Asynchronous inference execution (202 Accepted + background worker)
 **Chosen:** `POST /experiments/{id}/compare` triggers an asynchronous Lambda self-invocation (via `InvocationType='Event'`) and returns HTTP `202 Accepted` immediately. The background worker runs parallel Batch Transform jobs across all candidates, calls the user model worker, and saves results to DynamoDB. The frontend polls `GET /experiments/{id}` until status is `completed`.
@@ -126,7 +129,7 @@ This document records every significant design decision made for this project, i
 ### Decision: SageMaker Container Module Directory & Framework Packaging
 **Chosen:** Dual-entrypoint packaging (`inference.py` at root and under `code/`) with explicit `"SAGEMAKER_SUBMIT_DIRECTORY": "/opt/ml/model/code"` in the SageMaker model's environment.
 **Rejected:** Omitting `SAGEMAKER_SUBMIT_DIRECTORY` or relying on root defaults.
-**Why:** SageMaker Scikit-Learn containers (`sagemaker_containers`) require custom entrypoints to be located in `SAGEMAKER_SUBMIT_DIRECTORY`. Explicitly setting this ensures the serving handler imports the custom pre/post-processing logic reliably.
+**Why:** SageMaker Scikit-Learn containers (`sagemaker_containers`) require custom entrypoints to be located in `SAGEMAKER_SUBMIT_DIRECTORY`. Explicitly setting this is intended to make the serving handler import the custom pre/post-processing logic reliably. **Status:** implemented, but endpoint creation later failed on account-level access errors, so this was never confirmed by a served prediction.
 
 ### Decision: Autopilot Dataset Isolation via S3 Subfolder Prefix
 **Chosen:** Uploading training splits into dedicated subfolders (`{exp_id}/train/train.csv`) and pointing Autopilot's `S3Uri` to the subfolder.

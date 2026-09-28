@@ -41,7 +41,7 @@ This tool lets you explore both questions in one place. You bring a tabular data
                         + Direct Model Artifact Downloads (.tar.gz / .pkl)
 ```
 
-The platform evaluates predictions across *three distinct execution paths* using identical test data:
+The platform is designed to evaluate predictions across *three distinct execution paths* using identical test data. In the current deployment only path 1 ran end to end (see Status & Limitations below):
 
 1. **AWS Lambda Execution:** Direct inference in a serverless Python execution environment equipped with an attached scikit-learn/pandas ML Layer.
 2. **Amazon SageMaker Serverless Inference:** Dedicated endpoint packaging the user model with containerized inference logic, providing autoscaling serverless inference.
@@ -85,6 +85,14 @@ The platform is built on a *serverless, pay-per-use* architecture deployed in th
 
 ---
 
+## Status & Limitations
+
+- **AWS Lambda path:** worked end to end. Benchmarked on the Heart Disease and Titanic datasets using pre-trained models.
+- **SageMaker Serverless path:** implemented, and model definitions were created, but the endpoints failed on account-level access errors, so this path never produced benchmark results. The UI can show a path as `deployed` before the SageMaker endpoint is actually usable (see screenshots #12 and #17).
+- **SageMaker Autopilot path:** implemented, but blocked by the new-account AutoML concurrent jobs quota of 0. The app returns a clear error instead of crashing.
+
+---
+
 ## Screenshots & Visual Proofs
 
 The [`screenshots/`](file:///d:/Projects/ML-Model-and-Deployment-Comparison/screenshots) directory contains a complete visual walkthrough of the platform's infrastructure, deployment lifecycle, debugging resolutions, and machine learning benchmarking results:
@@ -102,12 +110,12 @@ The [`screenshots/`](file:///d:/Projects/ML-Model-and-Deployment-Comparison/scre
 | **09** | `09_aws_apigateway_http_api.png` | AWS Cloud | Amazon API Gateway HTTP API (v2) console with CORS and proxy integrations in Mumbai (`ap-south-1`). |
 | **10** | `10_aws_lambda_5_functions.png` | AWS Cloud | AWS Lambda Console listing all 5 serverless microservices. |
 | **11** | `11_aws_lambda_ml_layer.png` | AWS Cloud | AWS Lambda ML Layer (~140MB unzipped) providing Scikit-Learn, Pandas, and NumPy runtimes. |
-| **12** | `12_model_setup_both_deployed_ready.png` | Web UI | Model Setup step with Lambda and SageMaker Serverless in `deployed` status ready for evaluation. |
+| **12** | `12_model_setup_both_deployed_ready.png` | Web UI | Model Setup step with Lambda and SageMaker Serverless in `deployed` status in UI. |
 | **13** | `13_dashboard_comparison_failed_debug.png` | Diagnostics | Comparison Dashboard during DynamoDB Decimal serialization diagnosis. |
 | **14** | `14_dashboard_heart_lambda_success.png` | Benchmarks | Successful benchmark evaluation on Heart Disease dataset via serverless Lambda execution. |
 | **15** | `15_dashboard_titanic_raw_feature_mismatch.png` | Diagnostics | Graceful error isolation when evaluating pre-encoded estimators against raw un-encoded datasets. |
 | **16** | `16_aws_sagemaker_console_models.png` | AWS Cloud | Amazon SageMaker Console displaying provisioned `ml-lab-exp-...` model definitions. |
-| **17** | `17_aws_sagemaker_console_endpoints.png` | AWS Cloud | Amazon SageMaker Console displaying Serverless Endpoints in `InService` state. |
-| **18** | `18_dashboard_titanic_rf_success_96acc.png` | Benchmarks | Winning Evaluation: Titanic Random Forest on Lambda achieving 96.7% Accuracy, 0.966 F1, and `.pkl` artifact export. |
+| **17** | `17_aws_sagemaker_console_endpoints.png` | AWS Cloud | Amazon SageMaker Console displaying Serverless Endpoints in `Failed` state, blocked by account-level access errors. Model definitions were created (#16), but the endpoints never reached `InService`.|
+| **18** | `18_dashboard_titanic_rf_success_96acc.png` | Benchmarks | Winning Evaluation: Titanic Random Forest evaluated on the Lambda path: 96.7% Accuracy, 0.966 F1, with `.pkl` artifact export. |
 | **19** | `19_workbench_experiments_list_populated.png` | Web UI | Populated Experiments Workbench showing all 7 experiment runs, status badges, and summary cards. |
 

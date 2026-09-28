@@ -482,8 +482,8 @@ The automated deployment pipeline was validated and hardened through actual GitH
 ### Run 9: In-Place Rolling Update & Final Verification — SageMaker Container Serving Directory & Complete Benchmark Validation
 * **Status:** **SUCCESS**
 * **Root Causes & Architectural Refinements:**
-  1. **SageMaker Container Module Directory (`SAGEMAKER_SUBMIT_DIRECTORY`):** In SageMaker framework containers, placing the script at `code/inference.py` requires `"SAGEMAKER_SUBMIT_DIRECTORY": "/opt/ml/model/code"` in the container environment. Without it, the entrypoint looks in `/opt/ml/model/inference.py`, raising `ModuleNotFoundError: No module named 'inference'`. Dual entrypoint packaging and explicit environment variables were configured in `experiments/adapters.py`.
-  2. **End-to-End Validation:** Verified 7 complete experiments across Heart Disease and Titanic datasets, demonstrating **96.7% Accuracy** and **0.966 F1 Score** on held-out test splits with instant `.pkl` artifact export and serverless pay-per-use architecture.
+  1. **SageMaker Container Module Directory (`SAGEMAKER_SUBMIT_DIRECTORY`):** In SageMaker framework containers, placing the script at `code/inference.py` requires `"SAGEMAKER_SUBMIT_DIRECTORY": "/opt/ml/model/code"` in the container environment. Without it, the entrypoint looks in `/opt/ml/model/inference.py`, raising `ModuleNotFoundError: No module named 'inference'`. Dual entrypoint packaging and explicit environment variables were configured in `experiments/adapters.py`. This fixed the container import error seen in the endpoint logs. The endpoints still failed afterwards on account-level access errors, so the fix was never confirmed by a served prediction.
+  2. **Lambda-Path Validation:** Ran 7 experiments across the Heart Disease and Titanic datasets using pre-trained models. The Lambda path completed end to end, with the Titanic Random Forest reaching **96.7% Accuracy** and **0.966 F1 Score** and `.pkl` artifact export working. SageMaker Serverless endpoints and Autopilot did not run (see Status & Limitations in the README). 
 
 ---
 
